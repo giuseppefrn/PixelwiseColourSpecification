@@ -2,18 +2,14 @@ import os
 import shutil
 import numpy as np
 import pandas as pd
+import argparse 
 import torch
 
 import torchvision.transforms.functional as Functional
 # import torch.nn._reduction as _Reduction
-from torch.utils.data import Dataset
-from torchvision.io import read_image
 from torch.utils.data import DataLoader
-from torchvision.utils import make_grid
 import torchvision.transforms as transforms
 
-
-import argparse 
 import random
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,6 +20,8 @@ import torch.optim as optim
 import torch.utils.data
 import torchvision.utils as vutils
 
+from model.model import Generator, DiscriminatorPixelWise
+from utils.dataload import build_annoations, CustomImageDataset
 
 def remove_z_depth(path):
     # remove all Z_depth images
@@ -57,64 +55,6 @@ def copy_imgs(root_path, output_path):
         print('copying', os.path.join(root,dir))
         copy_folder_content(os.path.join(root,dir), output_path)
 
-def build_annoations(root_path):
-  annotations = pd.DataFrame()
-  
-  for root, dirs, files in os.walk(root_path):
-      for f in files:
-        label_root = root.replace('D65', 'SHADE')
-        img_path = os.path.join(root,f)
-        label_path = os.path.join(label_root,f)
-
-        annotations = annotations.append({0:img_path, 1:label_path}, ignore_index=True)
-
-  return annotations
-
-class CustomImageDataset(Dataset):
-    def __init__(self, annotations_file, transform=None, target_transform=None):
-        self.img_labels = pd.read_csv(annotations_file)
-        self.transform = transform
-        self.target_transform = target_transform
-
-    def __len__(self):
-        return len(self.img_labels)
-
-    def __getitem__(self, idx):
-        img_path = os.path.join(self.img_labels.iloc[idx, 0])
-        image = read_image(img_path)        
-
-        label_path = os.path.join(self.img_labels.iloc[idx, 1])
-        label = read_image(label_path)
-
-        ### TEST MASK ####
-        mask = torch.clone(label[0] + label[1] + label[2])
-        # mask[mask == 2] = 0
-        mask[mask < 5] = 0
-        mask[mask >= 5] = 1
-
-
-        if self.transform:
-            image = self.transform(image)
-        if self.target_transform:
-            label = self.target_transform(label)
-        return image, label, mask
-
-def build_annoations_multiview(root_path):
-  annotations = pd.DataFrame()
-
-  for shape in os.listdir(root_path):
-    shape_path = os.path.join(root_path, shape)
-    for color in os.listdir(shape_path):
-      color_path = os.path.join(shape_path, color)
-      for subcolor in os.listdir(color_path):
-        #path to images dir
-        subcolor_path = os.path.join(color_path, subcolor)
-        label_root = subcolor_path.replace('D65', 'SHADE')
-
-        annotations = annotations.append({0:subcolor_path, 1:label_root}, ignore_index=True)
-  return annotations
-
-
 def show(imgs):
     if not isinstance(imgs, list):
         imgs = [imgs]
@@ -133,157 +73,6 @@ def weights_init(m):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
-class CustomImageDatasetMultiView(Dataset):
-    def __init__(self, annotations_file, transform=None, target_transform=None):
-      self.img_labels = pd.read_csv(annotations_file)
-      self.transform = transform
-      self.target_transform = target_transform
-
-    def __len__(self):
-      return len(self.img_labels)
-
-    def __getitem__(self, idx):
-      images_path = self.img_labels.iloc[idx, 0]
-      images_list = os.listdir(images_path)
-      
-      images = [read_image(os.path.join(images_path, images_list[i])) for i in range(len(images_list))]
-      
-      labels_path = self.img_labels.iloc[idx, 1]
-      labels_list = os.listdir(labels_path)
-      labels = [read_image(os.path.join(labels_path, labels_list[i])) for i in range(len(labels_list))]
-
-      if self.transform:
-          images = [self.transform(images[i]) for i in range(len(images))]
-      if self.target_transform:
-          labels = [self.target_transform(labels[i]) for i in range(len(labels))]
-      return images, labels
-
-#Generator Code 
-class Generator(nn.Module):
-  def __init__(self, ngpu):
-    super(Generator, self).__init__()
-    self.ngpu = ngpu
-    self.main = nn.Sequential(
-      nn.Conv2d(3, 16, 3, 1, padding=1, bias=True),
-      nn.BatchNorm2d(16),
-      nn.ReLU(True),
-      nn.MaxPool2d(2),
-
-      nn.Conv2d(16, 32, 3, 1, padding=1, bias=True),
-      nn.BatchNorm2d(32),
-      nn.ReLU(True),
-      nn.MaxPool2d(2),
-
-      nn.Conv2d(32, 64, 3, 1, padding=1, bias=True),
-      nn.BatchNorm2d(64),
-      nn.ReLU(True),
-      nn.MaxPool2d(2),
-
-      nn.ConvTranspose2d(64, 32, 3, 2, padding=1, output_padding=1, bias=False),
-      nn.BatchNorm2d(32),
-      nn.ReLU(True),
-
-      nn.ConvTranspose2d(32, 16, 3, 2, padding=1, output_padding=1, bias=False),
-      nn.BatchNorm2d(16),
-      nn.ReLU(True),
-
-      nn.ConvTranspose2d(16, 8, 3, 2, padding=1, output_padding=1, bias=False),
-      nn.BatchNorm2d(8),
-      nn.ReLU(True),
-
-      nn.Conv2d(8, 3, 3, 1, padding=1, bias=True),
-    )
-
-  def forward(self, input):
-    return self.main(input)
-
-# Discriminator code
-
-class Discriminator(nn.Module):
-    def __init__(self, ngpu):
-        super(Discriminator, self).__init__()
-        self.ngpu = ngpu
-        self.main = nn.Sequential(
-            nn.Conv2d(3, 16, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            nn.Conv2d(16, 32, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            nn.Conv2d(32, 64, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            nn.Conv2d(64, 128, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.MaxPool2d(16),
-
-            nn.Flatten(),
-            nn.Linear(128,1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, input):
-        return self.main(input)
-
-class DiscriminatorPixelWise(nn.Module):
-    def __init__(self, ngpu):
-        super(DiscriminatorPixelWise, self).__init__()
-        self.ngpu = ngpu
-        self.main = nn.Sequential(
-            nn.Conv2d(3, 16, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            nn.Conv2d(16, 32, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            nn.Conv2d(32, 64, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            nn.Conv2d(64, 128, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.MaxPool2d(16),
-
-            #latent 
-
-            nn.Flatten(),
-            nn.Linear(128,64),
-            # nn.Sigmoid(),
-
-            #reshape
-            nn.Unflatten(-1,(1,8,8)),
-
-            nn.ConvTranspose2d(1, 1, 3, 2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(1),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.ConvTranspose2d(1, 1, 3, 2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(1),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.ConvTranspose2d(1, 1, 3, 2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(1),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.ConvTranspose2d(1, 1, 3, 2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(1),
-            nn.LeakyReLU(0.2, inplace=True),
-
-            nn.ConvTranspose2d(1, 1, 3, 2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(1),
-            nn.Sigmoid(),
-        )
-
-    def forward(self, input):
-        return self.main(input)
-
 class CustomLoss(nn.Module):
     def __init__(self):
         super(CustomLoss, self).__init__()
@@ -296,14 +85,7 @@ class CustomLoss(nn.Module):
         error = torch.mean(torch.div(error,non_zero))
 
         return error
-
-# def custom_loss(label, output, mask):
-#     # error = nn.functional.binary_cross_entropy(label, output, weight=mask, reduction='mean')
-#     # summed_by_img = torch.sum(error, dim=(1,2))
-#     # non_zero = torch.count_nonzero(mask, (1,2))
-#     # final_err = torch.mean(summed_by_img/non_zero)
-#     return nn.functional.binary_cross_entropy(label, output, reduction='mean')
-
+    
 if __name__ == '__main__':
     print('End')
 
