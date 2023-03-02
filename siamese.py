@@ -91,17 +91,15 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     #TODO add others illuminants
-    parser.add_argument('--illuminant', type=str, default='D65', help='illuminant to use [D65, F11, F4, ...], in case of folder_split it can be used to name the output dir')
-    parser.add_argument('--data_dir', type=str, default='multiviews', help='path to the dataset root')
+    parser.add_argument('--data_dir', type=str, default='/scratch/gfurnari/transparent/D65', help='path to the dataset')
+    parser.add_argument('--label_dir', type=str, default='/scratch/gfurnari/transparent/SHADE', help='path to the labels')
     parser.add_argument('--batch', type=int, default=32, help='batch size')
     parser.add_argument('--output_dir', type=str, default='experiments', help='output directory pathname')
     parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
-    parser.add_argument('--n_views', type=int, default=16, help='number of views to use, 1 for single view model')
     parser.add_argument('--lr', type=float, default=1e-3, help='initial learning rate')
-    parser.add_argument('--test', type=int, choices=[0,1,2], default=2, help='0 dont test the model, 1 test at the end of training, 2 test after each epoch')
-    parser.add_argument('--mode', type=str, default='RGBD', help='RGBD or RGB mode', choices=['RGBD', 'RGB'])
-    parser.add_argument('--test_on', type=str, choices=['subcolor', 'color', 'shape', 'folder_split'], default='subcolor', help="Select test set based on different subcolor/color/shape")
-    parser.add_argument('--value', help='Value for test selection, can be a color (str), subcolor ([0 - 9]), shape (str)', default=5)
+    parser.add_argument('--betal', type=float, default=0.5, help='beta1 value')
+    parser.add_argument('--workers', help='Number of workers for dataloader', default=1)
+    parser.add_argument('--ngpu', type=int, default=1, help='number of gpus')
 
     opt = parser.parse_args()
 
@@ -109,32 +107,21 @@ if __name__ == '__main__':
     # Root directory for dataset
     dataroot = "/content/imgs"
     # Number of workers for dataloader
-    workers = 2
+    workers = opt.workers
     # Batch size during training
-    batch_size = 64
-    # Spatial size of training images. All images will be resized to this
-    #   size using a transformer.
-    image_size = 256
-    # Number of channels in the training images. For color images this is 3
-    nc = 3
-    # Size of z latent vector (i.e. size of generator input)
-    nz = 100
-    # Size of feature maps in generator
-    ngf = 64
-    # Size of feature maps in discriminator
-    ndf = 64
+    batch_size = opt.batch
     # Number of training epochs
-    num_epochs = 100
+    num_epochs = opt.epochs
     # Learning rate for optimizers
-    lr = 0.001
+    lr = opt.lr
     # Beta1 hyperparam for Adam optimizers
-    beta1 = 0.5
+    beta1 = opt.betal
     # Number of GPUs available. Use 0 for CPU mode.
-    ngpu = 1
+    ngpu = opt.ngpu
 
-    data_path = '/scratch/gfurnari/transparent/D65'
-    label_path = '/scratch/gfurnari/transparent/SHADE'
-    output_dir = '/scratch/gfurnari/transparent-output'
+    data_path = opt.data_dir #'/scratch/gfurnari/transparent/D65'
+    label_path = opt.label_dir #'/scratch/gfurnari/transparent/SHADE'
+    output_dir = opt.output_dir #'/scratch/gfurnari/transparent-output'
 
     # Set random seed for reproducibility
     manualSeed = 999
