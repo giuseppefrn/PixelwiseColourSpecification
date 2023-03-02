@@ -20,7 +20,7 @@ import torch.optim as optim
 import torch.utils.data
 import torchvision.utils as vutils
 
-from model.model import Generator, DiscriminatorPixelWise
+from model.model import *
 from utils.dataload import build_annoations, CustomImageDataset
 
 def remove_z_depth(path):
@@ -88,6 +88,22 @@ class CustomLoss(nn.Module):
     
 if __name__ == '__main__':
     print('End')
+
+    parser = argparse.ArgumentParser()
+    #TODO add others illuminants
+    parser.add_argument('--illuminant', type=str, default='D65', help='illuminant to use [D65, F11, F4, ...], in case of folder_split it can be used to name the output dir')
+    parser.add_argument('--data_dir', type=str, default='multiviews', help='path to the dataset root')
+    parser.add_argument('--batch', type=int, default=32, help='batch size')
+    parser.add_argument('--output_dir', type=str, default='experiments', help='output directory pathname')
+    parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
+    parser.add_argument('--n_views', type=int, default=16, help='number of views to use, 1 for single view model')
+    parser.add_argument('--lr', type=float, default=1e-3, help='initial learning rate')
+    parser.add_argument('--test', type=int, choices=[0,1,2], default=2, help='0 dont test the model, 1 test at the end of training, 2 test after each epoch')
+    parser.add_argument('--mode', type=str, default='RGBD', help='RGBD or RGB mode', choices=['RGBD', 'RGB'])
+    parser.add_argument('--test_on', type=str, choices=['subcolor', 'color', 'shape', 'folder_split'], default='subcolor', help="Select test set based on different subcolor/color/shape")
+    parser.add_argument('--value', help='Value for test selection, can be a color (str), subcolor ([0 - 9]), shape (str)', default=5)
+
+    opt = parser.parse_args()
 
     ## ARGUMENTS ##
     # Root directory for dataset
@@ -171,7 +187,7 @@ if __name__ == '__main__':
     print(netG)
 
     # Create the Discriminator
-    netD = DiscriminatorPixelWise(ngpu).to(device)
+    netD = SiameseDiscriminatorPixelWise(ngpu).to(device)
 
     # Handle multi-gpu if desired
     if (device.type == 'cuda') and (ngpu > 1):
@@ -222,11 +238,13 @@ if __name__ == '__main__':
             netD.zero_grad()
             # Format batch
             real_cpu = data[1].to(device)
+            real_data = data[0].to(device)
+
             b_size = real_cpu.size(0)
             label = torch.full((b_size,256,256), real_label, dtype=torch.float, device=device)
 
             # Forward pass real batch through D
-            output = netD(real_cpu).view(b_size,256,256)
+            output = netD(real_cpu, real_data).view(b_size,256,256)
 
             ## add mask
             mask = data[2].to(device)
@@ -247,12 +265,12 @@ if __name__ == '__main__':
             # Generate batch of latent vectors
             # noise = torch.randn(b_size, nz, 1, 1, device=device)
             # Generate fake image batch with G
-            real_data = data[0].to(device)
+            
             fake = netG(real_data)
             label.fill_(fake_label)
 
             # Classify all fake batch with D
-            output = netD(fake.detach()).view(b_size,256,256)
+            output = netD(fake.detach(), real_data).view(b_size,256,256)
 
             # Calculate D's loss on the all-fake batch
             # error = nn.functional.binary_cross_entropy(label, output, weight=mask, reduction='none')
@@ -280,7 +298,7 @@ if __name__ == '__main__':
             # label = torch.clamp(label + mask, max=1) # no need all is already 1
 
             # Since we just updated D, perform another forward pass of all-fake batch through D
-            output = netD(fake).view(b_size,256,256)
+            output = netD(fake, real_data).view(b_size,256,256)
 
             # Calculate G's loss based on this output
             errG = criterion(output, label, mask)

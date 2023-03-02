@@ -210,7 +210,7 @@ class SiameseDiscriminatorPixelWise(nn.Module):
         self.fc = nn.Sequential(
             nn.Linear(128, 64),
             nn.ReLU(inplace=True),
-            nn.Linear(64, 1)
+            # nn.Linear(64, 1)
         )
 
         self.decode = nn.Sequential(
@@ -240,7 +240,7 @@ class SiameseDiscriminatorPixelWise(nn.Module):
         self.sigmoid = nn.Sigmoid()
     
     def forward_once(self, x):
-        output = self.main(x)
+        output = self.encode(x)
         return output
 
     def forward(self, input1, input2):
@@ -255,10 +255,3 @@ class SiameseDiscriminatorPixelWise(nn.Module):
 
         output = self.sigmoid(output)
         return output
-
-
-
-
-
-
-    
