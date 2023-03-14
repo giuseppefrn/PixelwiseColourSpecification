@@ -346,7 +346,7 @@ if __name__ == '__main__':
     torch.manual_seed(manualSeed)
 
     #run just once
-    # remove_z_depth('/scratch/gfurnari/transparent/')
+    remove_z_depth('/scratch/gfurnari/transparent/')
 
     annotations = build_annoations(data_path)
     print(len(annotations))

@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import argparse 
 import torch
-import yaml
 
 import torchvision.transforms.functional as Functional
 # import torch.nn._reduction as _Reduction
@@ -89,19 +88,18 @@ class CustomLoss(nn.Module):
     
 if __name__ == '__main__':
     print('Start')
+
     parser = argparse.ArgumentParser()
     #TODO add others illuminants
     parser.add_argument('--data_dir', type=str, default='/scratch/gfurnari/transparent/D65', help='path to the dataset')
     parser.add_argument('--label_dir', type=str, default='/scratch/gfurnari/transparent/SHADE', help='path to the labels')
-    parser.add_argument('--batch', type=int, default=64, help='batch size')
-    parser.add_argument('--output_dir', type=str, default='/scratch/gfurnari/outputs', help='output directory pathname')
+    parser.add_argument('--batch', type=int, default=32, help='batch size')
+    parser.add_argument('--output_dir', type=str, default='/scratch/gfurnari/albedo-output/exp-1/', help='output directory pathname')
     parser.add_argument('--epochs', type=int, default=10, help='number of epochs')
     parser.add_argument('--lr', type=float, default=1e-3, help='initial learning rate')
     parser.add_argument('--betal', type=float, default=0.5, help='beta1 value')
     parser.add_argument('--workers', help='Number of workers for dataloader', default=1)
     parser.add_argument('--ngpu', type=int, default=1, help='number of gpus')
-    parser.add_argument('--experiment_name', type=str, default='None', help='experiment name')
-    
 
     opt = parser.parse_args()
 
@@ -125,35 +123,6 @@ if __name__ == '__main__':
     label_path = opt.label_dir #'/scratch/gfurnari/transparent/SHADE'
     output_dir = opt.output_dir #'/scratch/gfurnari/transparent-output'
 
-
-
-    ## CREATING OUTPUT DIR
-
-    final_output_dir = os.path.join(output_dir, 'run')
-
-    if os.path.exists(final_output_dir):
-        run_list = os.listdir(output_dir)
-        i = len(run_list)
-        final_output_dir = os.path.join(output_dir, 'run' + str(i))
-        print('Eperiment folder already exists - creating: {}'.format(final_output_dir))
-
-    print('Experiments directory:', final_output_dir)
-    os.makedirs(final_output_dir ,exist_ok=True)
-
-    with open(os.path.join(final_output_dir, 'configuration.yaml'), 'w') as f:
-      yaml.dump(
-        {
-          'data_dir':opt.data_dir,
-          'batch':opt.batch,
-          'output_dir':final_output_dir,
-          'epochs': opt.epochs,
-          'lr': lr,
-          'name': opt.experiment_name
-        }
-        , f)
-
-    output_dir = final_output_dir
-
     # Set random seed for reproducibility
     manualSeed = 999
     #manualSeed = random.randint(1, 10000) # use if you want new results
@@ -162,8 +131,7 @@ if __name__ == '__main__':
     torch.manual_seed(manualSeed)
 
     #run just once
-    remove_z_depth(data_path)
-    remove_z_depth(opt.label_dir)
+    # remove_z_depth('/scratch/gfurnari/transparent/')
 
     annotations = build_annoations(data_path)
     print(len(annotations))
@@ -206,7 +174,7 @@ if __name__ == '__main__':
     print(netG)
 
     # Create the Discriminator
-    netD = SiameseDiscriminator(ngpu).to(device)
+    netD = SiameseDiscriminatorPixelWise(ngpu).to(device)
 
     # Handle multi-gpu if desired
     if (device.type == 'cuda') and (ngpu > 1):
@@ -220,8 +188,8 @@ if __name__ == '__main__':
     print(netD) 
     
     # Initialize BCELoss function
-    # criterion = CustomLoss()
-    criterion = nn.BCELoss()
+    criterion = CustomLoss()
+    # criterion = BCELoss()
 
     # Create batch of latent vectors that we will use to visualize
     #  the progression of the generator
@@ -260,11 +228,10 @@ if __name__ == '__main__':
             real_data = data[0].to(device)
 
             b_size = real_cpu.size(0)
-            label = torch.full((b_size,1), real_label, dtype=torch.float, device=device)
-            
-            # print(real_cpu.shape, real_data.shape)
+            label = torch.full((b_size,256,256), real_label, dtype=torch.float, device=device)
+
             # Forward pass real batch through D
-            output = netD(real_cpu, real_data).view(b_size, 1)
+            output = netD(real_cpu, real_data).view(b_size,256,256)
 
             ## add mask
             mask = data[2].to(device)
@@ -276,7 +243,7 @@ if __name__ == '__main__':
             # non_zero = torch.count_nonzero(mask, (1,2))
             # errD_real = torch.mean(summed_by_img/non_zero)
 
-            errD_real = criterion(output, label)
+            errD_real = criterion(output, label, mask)
             # Calculate gradients for D in backward pass
             errD_real.backward()
             D_x = output.mean().item()
@@ -290,7 +257,7 @@ if __name__ == '__main__':
             label.fill_(fake_label)
 
             # Classify all fake batch with D
-            output = netD(fake.detach(), real_data).view(b_size, 1)
+            output = netD(fake.detach(), real_data).view(b_size,256,256)
 
             # Calculate D's loss on the all-fake batch
             # error = nn.functional.binary_cross_entropy(label, output, weight=mask, reduction='none')
@@ -298,7 +265,7 @@ if __name__ == '__main__':
             # non_zero = torch.count_nonzero(mask, (1,2))
             # errD_fake = torch.mean(summed_by_img/non_zero)
 
-            errD_fake = criterion(output, label)
+            errD_fake = criterion(output, label, mask)
 
             # Calculate the gradients for this batch, accumulated (summed) with previous gradients
             errD_fake.backward()
@@ -318,10 +285,10 @@ if __name__ == '__main__':
             # label = torch.clamp(label + mask, max=1) # no need all is already 1
 
             # Since we just updated D, perform another forward pass of all-fake batch through D
-            output = netD(fake, real_data).view(b_size, 1)
+            output = netD(fake, real_data).view(b_size,256,256)
 
             # Calculate G's loss based on this output
-            errG = criterion(output, label)
+            errG = criterion(output, label, mask)
 
             # error = nn.functional.binary_cross_entropy(label, output, weight=mask, reduction='none')
             # summed_by_img = torch.sum(error, dim=(1,2))
@@ -345,7 +312,7 @@ if __name__ == '__main__':
             D_losses.append(errD.item())
 
             # Check how the generator is doing by saving G's output on fixed_noise
-            if (iters % 200 == 0) or ((epoch == num_epochs-1) and (i == len(train_dataloader)-1)):
+            if (iters % 500 == 0) or ((epoch == num_epochs-1) and (i == len(train_dataloader)-1)):
                 with torch.no_grad():
                     fake = netG(fixed_noise).detach().cpu()
                 img_list.append(vutils.make_grid(fake, padding=2, normalize=True))
