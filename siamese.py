@@ -262,7 +262,7 @@ if __name__ == '__main__':
             b_size = real_cpu.size(0)
             label = torch.full((b_size,1), real_label, dtype=torch.float, device=device)
 
-            additive_noise = torch.normal(mean=0, std=0.2, size=(b_size,3,256,256))
+            additive_noise = torch.normal(mean=0, std=0.2, size=(b_size,3,256,256)).to(device)
             noisy_label = torch.add(real_cpu, additive_noise)
             
             # print(real_cpu.shape, real_data.shape)
@@ -294,7 +294,7 @@ if __name__ == '__main__':
 
             # Classify all fake batch with D
 
-            additive_noise = torch.normal(mean=0, std=0.2, size=(b_size,3,256,256))
+            additive_noise = torch.normal(mean=0, std=0.2, size=(b_size,3,256,256)).to(device)
             noisy_fake = torch.add(fake.detach(), additive_noise)
 
             output = netD(noisy_fake, real_data).view(b_size, 1)
