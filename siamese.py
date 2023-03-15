@@ -261,10 +261,13 @@ if __name__ == '__main__':
 
             b_size = real_cpu.size(0)
             label = torch.full((b_size,1), real_label, dtype=torch.float, device=device)
+
+            additive_noise = torch.normal(mean=0, std=0.2, size=(b_size,3,256,256))
+            noisy_label = torch.add(real_cpu, additive_noise)
             
             # print(real_cpu.shape, real_data.shape)
             # Forward pass real batch through D
-            output = netD(real_cpu, real_data).view(b_size, 1)
+            output = netD(noisy_label, real_data).view(b_size, 1)
 
             ## add mask
             mask = data[2].to(device)
@@ -290,7 +293,11 @@ if __name__ == '__main__':
             label.fill_(fake_label)
 
             # Classify all fake batch with D
-            output = netD(fake.detach(), real_data).view(b_size, 1)
+
+            additive_noise = torch.normal(mean=0, std=0.2, size=(b_size,3,256,256))
+            noisy_fake = torch.add(fake.detach(), additive_noise)
+
+            output = netD(noisy_fake, real_data).view(b_size, 1)
 
             # Calculate D's loss on the all-fake batch
             # error = nn.functional.binary_cross_entropy(label, output, weight=mask, reduction='none')

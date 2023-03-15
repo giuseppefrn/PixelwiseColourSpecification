@@ -36,6 +36,7 @@ class Generator(nn.Module):
       nn.ReLU(True),
 
       nn.Conv2d(8, 3, 3, 1, padding=1, bias=True),
+      nn.Sigmoid()
     )
 
   def forward(self, input):
