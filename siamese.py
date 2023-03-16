@@ -14,6 +14,7 @@ import torchvision.transforms as transforms
 import random
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 import torch.nn as nn
 import torch.nn.parallel
@@ -98,10 +99,13 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=10, help='number of epochs')
     parser.add_argument('--lr', type=float, default=1e-3, help='initial learning rate')
     parser.add_argument('--betal', type=float, default=0.5, help='beta1 value')
+    parser.add_argument('--beta2', type=float, default=0.999, help='beta2 value')
     parser.add_argument('--workers', help='Number of workers for dataloader', default=1)
     parser.add_argument('--ngpu', type=int, default=1, help='number of gpus')
     parser.add_argument('--experiment_name', type=str, default='None', help='experiment name')
-    
+    # parser.add_argument('--noise', type=bool, default=False, help='boolean add or not the noise to discr inputs')
+    parser.add_argument('--noise_mean', type=float, default=0, help='Mean of the gaussian distribution to generate noise')
+    parser.add_argument('--noise_std', type=float, default=0.1, help='Dev std of the gaussian distribution to generate noise')
 
     opt = parser.parse_args()
 
@@ -118,8 +122,12 @@ if __name__ == '__main__':
     lr = opt.lr
     # Beta1 hyperparam for Adam optimizers
     beta1 = opt.betal
+    beta2 = opt.beta2
     # Number of GPUs available. Use 0 for CPU mode.
     ngpu = opt.ngpu
+
+    noise_mean = opt.noise_mean
+    noise_std = opt.noise_std
 
     data_path = opt.data_dir #'/scratch/gfurnari/transparent/D65'
     label_path = opt.label_dir #'/scratch/gfurnari/transparent/SHADE'
@@ -130,12 +138,15 @@ if __name__ == '__main__':
     ## CREATING OUTPUT DIR
 
     final_output_dir = os.path.join(output_dir, 'run')
+    i = 0
 
-    if os.path.exists(final_output_dir):
-        run_list = os.listdir(output_dir)
-        i = len(run_list)
+    while os.path.exists(final_output_dir):
+        i += 1
         final_output_dir = os.path.join(output_dir, 'run' + str(i))
-        print('Eperiment folder already exists - creating: {}'.format(final_output_dir))
+        # run_list = os.listdir(output_dir)
+        # i = len(run_list)
+        # final_output_dir = os.path.join(output_dir, 'run' + str(i))
+        # print('Eperiment folder already exists - creating: {}'.format(final_output_dir))
 
     print('Experiments directory:', final_output_dir)
     os.makedirs(final_output_dir ,exist_ok=True)
@@ -148,6 +159,10 @@ if __name__ == '__main__':
           'output_dir':final_output_dir,
           'epochs': opt.epochs,
           'lr': lr,
+          'beta1': beta1,
+          'beta2':beta2,
+          'noise_m':noise_mean,
+          'noise_std': noise_std,
           'name': opt.experiment_name
         }
         , f)
@@ -183,6 +198,11 @@ if __name__ == '__main__':
                                 #  transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)), 
                                 ])
     
+    data_augm = transform.Compose([
+       transforms.RandomPerspective(distortion_scale=0.6, p=1.0),
+       transforms.RandomAffine(degrees=(30, 70), translate=(0.1, 0.3), scale=(0.5, 0.75))
+    ])
+    
     training_data = CustomImageDataset(os.path.join(output_dir,'annotations.csv'), transform, transform)
     train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
 
@@ -200,7 +220,7 @@ if __name__ == '__main__':
 
     # Apply the weights_init function to randomly initialize all weights
     #  to mean=0, stdev=0.02.
-    netG.apply(weights_init)
+    # netG.apply(weights_init)
 
     # Print the model
     print(netG)
@@ -214,7 +234,7 @@ if __name__ == '__main__':
 
     # Apply the weights_init function to randomly initialize all weights
     #  to mean=0, stdev=0.2.
-    netD.apply(weights_init)
+    # netD.apply(weights_init)
 
     # Print the model
     print(netD) 
@@ -234,8 +254,8 @@ if __name__ == '__main__':
     fake_label = 0.
 
     # Setup Adam optimizers for both G and D
-    optimizerD = optim.Adam(netD.parameters(), lr=lr, betas=(beta1, 0.999))
-    optimizerG = optim.Adam(netG.parameters(), lr=lr, betas=(beta1, 0.999))
+    optimizerD = optim.Adam(netD.parameters(), lr=lr, betas=(beta1, beta2))
+    optimizerG = optim.Adam(netG.parameters(), lr=lr, betas=(beta1, beta2))
 
     # Training Loop
 
@@ -244,6 +264,8 @@ if __name__ == '__main__':
     G_losses = []
     D_losses = []
     iters = 0
+
+    d_res = []
 
     print("Starting Training Loop...")
     # For each epoch
@@ -262,12 +284,21 @@ if __name__ == '__main__':
             b_size = real_cpu.size(0)
             label = torch.full((b_size,1), real_label, dtype=torch.float, device=device)
 
-            additive_noise = torch.normal(mean=0, std=0.2, size=(b_size,3,256,256)).to(device)
+            additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
             noisy_label = torch.add(real_cpu, additive_noise)
+
+            state = torch.get_rng_state()
+            noisy_label = data_augm(noisy_label)
+            torch.set_rng_state(state)
+            aug_data = data_augm(real_data)
             
+
             # print(real_cpu.shape, real_data.shape)
             # Forward pass real batch through D
-            output = netD(noisy_label, real_data).view(b_size, 1)
+            output = netD(noisy_label, aug_data).view(b_size, 1)
+
+            if epoch == num_epochs - 1:
+              d_res.append(output.detach().cpu())
 
             ## add mask
             mask = data[2].to(device)
@@ -294,10 +325,18 @@ if __name__ == '__main__':
 
             # Classify all fake batch with D
 
-            additive_noise = torch.normal(mean=0, std=0.2, size=(b_size,3,256,256)).to(device)
+            additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
             noisy_fake = torch.add(fake.detach(), additive_noise)
 
-            output = netD(noisy_fake, real_data).view(b_size, 1)
+            state = torch.get_rng_state()
+            noisy_label = data_augm(noisy_label)
+            torch.set_rng_state(state)
+            aug_data = data_augm(real_data)
+
+            output = netD(noisy_fake, aug_data).view(b_size, 1)
+
+            if epoch == num_epochs - 1:
+              d_res.append(output.detach().cpu())
 
             # Calculate D's loss on the all-fake batch
             # error = nn.functional.binary_cross_entropy(label, output, weight=mask, reduction='none')
@@ -340,6 +379,18 @@ if __name__ == '__main__':
             D_G_z2 = output.mean().item()
             # Update G
             optimizerG.step()
+
+            if len(G_losses) > 0 and errG.item() < min(G_losses):
+               print('New best Generator!')
+               with torch.no_grad():
+                    fake = netG(fixed_noise).detach().cpu()
+                    fig = plt.figure(figsize=(8,8))
+                    plt.axis("off")
+                    plt.imshow(np.transpose(vutils.make_grid(fake, padding=2, normalize=True),(1,2,0)))
+                    plt.title("Generated Albedo")
+                    plt.savefig(os.path.join(output_dir, 'albedo-best-gen'))
+                    plt.show()
+                    plt.close()
 
             # Output training stats
             if i % 50 == 0:
@@ -393,3 +444,22 @@ if __name__ == '__main__':
     plt.title("Original Rendered Images")
     plt.imshow(np.transpose(vutils.make_grid(ex, padding=2, normalize=True).cpu(),(1,2,0)))
     plt.savefig(os.path.join(output_dir, 'rendered'))
+
+    plt.close('all')
+
+    d_res = np.concatenate([x.numpy().flatten() for x in d_res])
+    
+    print(d_res.shape)
+    
+    # for x in d_res:
+    #    print(x.shape)
+
+    # d_res = np.array(d_res).flatten()
+    # print(d_res.shape)
+
+    histplot = sns.histplot(d_res)
+    fig = histplot.get_figure()
+ 
+    # use savefig function to save the plot and give
+    # a desired name to the plot.
+    fig.savefig(os.path.join(output_dir, 'discriminator-predictions.png'))
