@@ -12,4 +12,4 @@
 
 . pytorch-venv/bin/activate
 cd color-segm
-python3 siamese.py --epochs 50 --beta2 0.92 --betal 0.32 --noise_std 0.2 --data_dir /scratch/gfurnari/datasets/zoomed/D65 --label_dir /scratch/gfurnari/datasets/zoomed/SHADE --output_dir /scratch/gfurnari/outputs --experiment_name "siamese zoomed dataset + noise on Y and G(x)"
+python3 siamese.py --epochs 50 --noise_std 0.1 --data_dir /scratch/gfurnari/datasets/zoomed/D65 --label_dir /scratch/gfurnari/datasets/zoomed/SHADE --output_dir /scratch/gfurnari/outputs --experiment_name "Generator with skip connection (UNET style)"

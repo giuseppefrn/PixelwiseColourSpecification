@@ -198,10 +198,10 @@ if __name__ == '__main__':
                                 #  transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)), 
                                 ])
     
-    data_augm = transform.Compose([
-       transforms.RandomPerspective(distortion_scale=0.6, p=1.0),
-       transforms.RandomAffine(degrees=(30, 70), translate=(0.1, 0.3), scale=(0.5, 0.75))
-    ])
+    # data_augm = transforms.Compose([
+    #    transforms.RandomPerspective(distortion_scale=0.6, p=1.0),
+    #    transforms.RandomAffine(degrees=(30, 70), translate=(0.1, 0.3), scale=(0.5, 0.75))
+    # ])
     
     training_data = CustomImageDataset(os.path.join(output_dir,'annotations.csv'), transform, transform)
     train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
@@ -287,21 +287,21 @@ if __name__ == '__main__':
             additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
             noisy_label = torch.add(real_cpu, additive_noise)
 
-            state = torch.get_rng_state()
-            noisy_label = data_augm(noisy_label)
-            torch.set_rng_state(state)
-            aug_data = data_augm(real_data)
+            # state = torch.get_rng_state()
+            # noisy_label = data_augm(noisy_label)
+            # torch.set_rng_state(state)
+            # aug_data = data_augm(real_data)
             
 
             # print(real_cpu.shape, real_data.shape)
             # Forward pass real batch through D
-            output = netD(noisy_label, aug_data).view(b_size, 1)
+            output = netD(noisy_label, real_data).view(b_size, 1)
 
             if epoch == num_epochs - 1:
               d_res.append(output.detach().cpu())
 
             ## add mask
-            mask = data[2].to(device)
+            # mask = data[2].to(device)
             # output = torch.clamp(output + mask, max=1) # no need for true label (since all is 1)
 
             # Calculate loss on all-real batch
@@ -328,12 +328,12 @@ if __name__ == '__main__':
             additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
             noisy_fake = torch.add(fake.detach(), additive_noise)
 
-            state = torch.get_rng_state()
-            noisy_label = data_augm(noisy_label)
-            torch.set_rng_state(state)
-            aug_data = data_augm(real_data)
+            # state = torch.get_rng_state()
+            # noisy_label = data_augm(noisy_label)
+            # torch.set_rng_state(state)
+            # aug_data = data_augm(real_data)
 
-            output = netD(noisy_fake, aug_data).view(b_size, 1)
+            output = netD(noisy_fake, real_data).view(b_size, 1)
 
             if epoch == num_epochs - 1:
               d_res.append(output.detach().cpu())

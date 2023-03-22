@@ -42,6 +42,78 @@ class Generator(nn.Module):
   def forward(self, input):
     return self.main(input)
   
+#Generato with skip connections
+class GeneratorSC(nn.Module):
+    def __init__(self, ngpu):
+        super(GeneratorSC, self).__init__()
+        self.ngpu = ngpu
+
+        self.block_1 = nn.Sequential(
+            nn.Conv2d(3, 16, 3, 1, padding=1, bias=True),
+            nn.BatchNorm2d(16),
+            nn.ReLU(True),
+            nn.MaxPool2d(2)
+        )
+
+        self.block_2 = nn.Sequential(
+            nn.Conv2d(16, 32, 3, 1, padding=1, bias=True),
+            nn.BatchNorm2d(32),
+            nn.ReLU(True),
+            nn.MaxPool2d(2)
+        )
+
+        self.block_3 = nn.Sequential(
+            nn.Conv2d(32, 64, 3, 1, padding=1, bias=True),
+            nn.BatchNorm2d(64),
+            nn.ReLU(True),
+            nn.MaxPool2d(2)
+        )
+
+        self.upBlock_1 = nn.sequential(
+            nn.ConvTranspose2d(64, 32, 3, 2, padding=1, output_padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(True),
+        )
+
+        self.upBlock_2 = nn.sequential(
+            nn.ConvTranspose2d(32, 16, 3, 2, padding=1, output_padding=1, bias=False),
+            nn.BatchNorm2d(16),
+            nn.ReLU(True),
+        )
+
+        self.upBlock_3 = nn.sequential(
+            nn.ConvTranspose2d(16, 8, 3, 2, padding=1, output_padding=1, bias=False),
+            nn.BatchNorm2d(8),
+            nn.ReLU(True),
+        )
+
+        self.add_1 = nn.Add()
+        self.add_2 = nn.Add()
+        self.add_3 = nn.Add()
+
+        self.last_conv = nn.Conv2d(8, 3, 3, 1, padding=1, bias=True)
+        self.sigmoid = nn.Sigmoid()
+
+    def main(self, input):
+        x1 = self.block_1(input)
+        x2 = self.block_2(x1)
+        x = self.block_3(x2)
+
+        x = self.upBlock_1(x)
+        x = self.add_1([x,x2])
+
+        x = self.upBlock_2(x)
+        x = self.add_1([x,x1])
+
+        x = self.upBlock_3(x)
+        
+        x = self.last_conv(x)
+        x = self.sigmoid(x)
+        return x
+
+    def forward(self, input):
+        return self.main(input)
+
 # Discriminator code
 class Discriminator(nn.Module):
     def __init__(self, ngpu):
