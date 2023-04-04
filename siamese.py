@@ -275,6 +275,8 @@ if __name__ == '__main__':
             ############################
             # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
             ###########################
+
+            
             ## Train with all-real batch
             netD.zero_grad()
             # Format batch
@@ -291,11 +293,10 @@ if __name__ == '__main__':
             # noisy_label = data_augm(noisy_label)
             # torch.set_rng_state(state)
             # aug_data = data_augm(real_data)
-            
-
+        
             # print(real_cpu.shape, real_data.shape)
             # Forward pass real batch through D
-            output = netD(noisy_label, real_data).view(b_size, 1)
+            output = netD(real_cpu, real_data).view(b_size, 1)
 
             if epoch == num_epochs - 1:
               d_res.append(output.detach().cpu())
@@ -333,7 +334,7 @@ if __name__ == '__main__':
             # torch.set_rng_state(state)
             # aug_data = data_augm(real_data)
 
-            output = netD(noisy_fake, real_data).view(b_size, 1)
+            output = netD(fake, real_data).view(b_size, 1)
 
             if epoch == num_epochs - 1:
               d_res.append(output.detach().cpu())
@@ -344,7 +345,7 @@ if __name__ == '__main__':
             # non_zero = torch.count_nonzero(mask, (1,2))
             # errD_fake = torch.mean(summed_by_img/non_zero)
 
-            errD_fake = criterion(output, label)
+            errD_fake = criterion(output.detach(), label)
 
             # Calculate the gradients for this batch, accumulated (summed) with previous gradients
             errD_fake.backward()
