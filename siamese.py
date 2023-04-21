@@ -247,6 +247,7 @@ if __name__ == '__main__':
     #  the progression of the generator
 
     real_batch = next(iter(train_dataloader))
+    
     fixed_noise = real_batch[0].to(device) # fixed images
 
     # Establish convention for real and fake labels during training
@@ -276,34 +277,29 @@ if __name__ == '__main__':
             # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
             ###########################
 
-            
+            ##############################
             ## Train with all-real batch
+            ##############################
+
             netD.zero_grad()
             # Format batch
-            real_cpu = data[1].to(device)
-            real_data = data[0].to(device)
+            disc_data = data[0][0:len(data[0])//2]
+            gen_data = data[0][len(data[0])//2:]
 
-            b_size = real_cpu.size(0)
+            real_alb =  data[1][0:len(data[0])//2].to(device)
+            real_data = disc_data.to(device)
+
+            b_size = real_alb.size(0)
             label = torch.full((b_size,1), real_label, dtype=torch.float, device=device)
 
-            additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
-            noisy_label = torch.add(real_cpu, additive_noise)
-
-            # state = torch.get_rng_state()
-            # noisy_label = data_augm(noisy_label)
-            # torch.set_rng_state(state)
-            # aug_data = data_augm(real_data)
+            # additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
+            # noisy_label = torch.add(real_alb, additive_noise)
         
-            # print(real_cpu.shape, real_data.shape)
             # Forward pass real batch through D
-            output = netD(real_cpu, real_data).view(b_size, 1)
+            output = netD(real_alb, real_data).view(b_size, 1)
 
             if epoch == num_epochs - 1:
               d_res.append(output.detach().cpu())
-
-            ## add mask
-            # mask = data[2].to(device)
-            # output = torch.clamp(output + mask, max=1) # no need for true label (since all is 1)
 
             # Calculate loss on all-real batch
             # error = nn.functional.binary_cross_entropy(label, output, weight=mask, reduction='none')
@@ -316,25 +312,27 @@ if __name__ == '__main__':
             errD_real.backward()
             D_x = output.mean().item()
 
+            ############################
             ## Train with all-fake batch
+            ############################
+
             # Generate batch of latent vectors
             # noise = torch.randn(b_size, nz, 1, 1, device=device)
             # Generate fake image batch with G
-            
-            fake = netG(real_data)
-            label.fill_(fake_label)
+            real_alb_g = data[1][len(data[0])//2:].to(device)
+            real_data_g = gen_data.to(device)
+
+            label = torch.full((real_alb_g.size(0), 1), fake_label, dtype=torch.float, device=device)
+            fake = netG(real_data_g)
+
+            # label.fill_(fake_label)
 
             # Classify all fake batch with D
 
-            additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
-            noisy_fake = torch.add(fake.detach(), additive_noise)
+            # additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
+            # noisy_fake = torch.add(fake.detach(), additive_noise)
 
-            # state = torch.get_rng_state()
-            # noisy_label = data_augm(noisy_label)
-            # torch.set_rng_state(state)
-            # aug_data = data_augm(real_data)
-
-            output = netD(fake, real_data).view(b_size, 1)
+            output = netD(fake, real_data_g).view(real_alb_g.size(0), 1)
 
             if epoch == num_epochs - 1:
               d_res.append(output.detach().cpu())
@@ -345,7 +343,7 @@ if __name__ == '__main__':
             # non_zero = torch.count_nonzero(mask, (1,2))
             # errD_fake = torch.mean(summed_by_img/non_zero)
 
-            errD_fake = criterion(output.detach(), label)
+            errD_fake = criterion(output, label)
 
             # Calculate the gradients for this batch, accumulated (summed) with previous gradients
             errD_fake.backward()
@@ -358,18 +356,22 @@ if __name__ == '__main__':
             ############################
             # (2) Update G network: maximize log(D(G(z)))
             ###########################
-            netG.zero_grad()
-            label.fill_(real_label)  # fake labels are real for generator cost
-            
-            # add mask to labels
-            # label = torch.clamp(label + mask, max=1) # no need all is already 1
+            label_2= torch.full((real_alb_g.size(0),1), real_label, dtype=torch.float, device=device)
+            label = torch.full((b_size,1), real_label, dtype=torch.float, device=device)
 
+            netG.zero_grad()
+            # label.fill_(real_label)  # fake labels are real for generator cost
             # Since we just updated D, perform another forward pass of all-fake batch through D
-            output = netD(fake, real_data).view(b_size, 1)
+            output = netD(fake, real_data_g).view(b_size, 1)
+            errG_1 = criterion(output, label)
+
+            # generate the first half of fakes
+            fake_2 = netG(real_data)
+            output_2 = netD(fake_2, real_data).view(b_size, 1)
+            errG_2 = criterion(output_2, label_2)
 
             # Calculate G's loss based on this output
-            errG = criterion(output, label)
-
+            errG = errG_1 + errG_2
             # error = nn.functional.binary_cross_entropy(label, output, weight=mask, reduction='none')
             # summed_by_img = torch.sum(error, dim=(1,2))
             # non_zero = torch.count_nonzero(mask, (1,2))
