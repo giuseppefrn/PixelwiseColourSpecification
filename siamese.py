@@ -346,7 +346,7 @@ if __name__ == '__main__':
             errD_fake = criterion(output, label)
 
             # Calculate the gradients for this batch, accumulated (summed) with previous gradients
-            errD_fake.backward()
+            errD_fake.backward(retain_graph=True)
             D_G_z1 = output.mean().item()
             # Compute error of D as sum over the fake and the real batches
             errD = errD_real + errD_fake
