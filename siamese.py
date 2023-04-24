@@ -106,7 +106,9 @@ if __name__ == '__main__':
     # parser.add_argument('--noise', type=bool, default=False, help='boolean add or not the noise to discr inputs')
     parser.add_argument('--noise_mean', type=float, default=0, help='Mean of the gaussian distribution to generate noise')
     parser.add_argument('--noise_std', type=float, default=0.1, help='Dev std of the gaussian distribution to generate noise')
-
+    parser.add_argument('--split_train', type=int, default=0, help='To split training differently for Gen and Disc ')
+    parser.add_argument('--add_noise', type=int, default=0, help='if use or not instance noise')
+    
     opt = parser.parse_args()
 
     ## ARGUMENTS ##
@@ -133,7 +135,8 @@ if __name__ == '__main__':
     label_path = opt.label_dir #'/scratch/gfurnari/transparent/SHADE'
     output_dir = opt.output_dir #'/scratch/gfurnari/transparent-output'
 
-
+    different_split = bool(opt.split_train)
+    add_noise = bool(opt.add_noise)
 
     ## CREATING OUTPUT DIR
 
@@ -212,7 +215,7 @@ if __name__ == '__main__':
     print(device)
 
     # Create the generator
-    netG = Generator(ngpu).to(device)
+    netG = GeneratorSC(ngpu).to(device)
 
     # Handle multi-gpu if desired
     if (device.type == 'cuda') and (ngpu > 1):
@@ -273,30 +276,40 @@ if __name__ == '__main__':
     for epoch in range(num_epochs):
         # For each batch in the dataloader
         for i, data in enumerate(train_dataloader, 0):
-            ############################
-            # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
-            ###########################
-
-            ##############################
-            ## Train with all-real batch
-            ##############################
-
             netD.zero_grad()
-            # Format batch
-            disc_data = data[0][0:len(data[0])//2]
-            gen_data = data[0][len(data[0])//2:]
 
-            real_alb =  data[1][0:len(data[0])//2].to(device)
-            real_data = disc_data.to(device)
+            # Format batch
+            if different_split:
+                disc_data = data[0][0:len(data[0])//2]
+                gen_data = data[0][len(data[0])//2:]
+
+                real_alb =  data[1][0:len(data[0])//2].to(device)
+                real_data = disc_data.to(device)
+
+                real_alb_g = data[1][len(data[0])//2:].to(device)
+                real_data_g = gen_data.to(device)
+            
+            else:
+                disc_data = data[0]
+                gen_data = disc_data
+                real_alb = data[1].to(device)
+                real_alb_g = real_alb
+                real_data = disc_data.to(device)
+                real_data_g = real_data            
 
             b_size = real_alb.size(0)
             label = torch.full((b_size,1), real_label, dtype=torch.float, device=device)
 
-            # additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
-            # noisy_label = torch.add(real_alb, additive_noise)
-        
-            # Forward pass real batch through D
-            output = netD(real_alb, real_data).view(b_size, 1)
+            ## WITH NOISE
+            if add_noise:
+                additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
+                noisy_label = torch.add(real_alb, additive_noise)
+                output = netD(noisy_label, real_data).view(b_size, 1)
+            
+            ## WITHOUT NOISE
+            else:
+            ## Forward pass real batch through D
+                output = netD(real_alb, real_data).view(b_size, 1)
 
             if epoch == num_epochs - 1:
               d_res.append(output.detach().cpu())
@@ -319,9 +332,7 @@ if __name__ == '__main__':
             # Generate batch of latent vectors
             # noise = torch.randn(b_size, nz, 1, 1, device=device)
             # Generate fake image batch with G
-            real_alb_g = data[1][len(data[0])//2:].to(device)
-            real_data_g = gen_data.to(device)
-
+            
             label = torch.full((real_alb_g.size(0), 1), fake_label, dtype=torch.float, device=device)
             fake = netG(real_data_g)
 
@@ -329,10 +340,15 @@ if __name__ == '__main__':
 
             # Classify all fake batch with D
 
-            # additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
-            # noisy_fake = torch.add(fake.detach(), additive_noise)
+            ## WITH NOISE
+            if add_noise:
+                additive_noise = torch.normal(mean=noise_mean, std=noise_std, size=(b_size,3,256,256)).to(device)
+                noisy_fake = torch.add(fake.detach(), additive_noise)
+                output = netD(noisy_fake, real_data_g).view(real_alb_g.size(0), 1)
 
-            output = netD(fake, real_data_g).view(real_alb_g.size(0), 1)
+            ##without NOISE
+            else:
+                output = netD(fake, real_data_g).view(real_alb_g.size(0), 1)
 
             if epoch == num_epochs - 1:
               d_res.append(output.detach().cpu())
@@ -362,16 +378,20 @@ if __name__ == '__main__':
             netG.zero_grad()
             # label.fill_(real_label)  # fake labels are real for generator cost
             # Since we just updated D, perform another forward pass of all-fake batch through D
-            output = netD(fake, real_data_g).view(b_size, 1)
-            errG_1 = criterion(output, label)
 
             # generate the first half of fakes
             fake_2 = netG(real_data)
             output_2 = netD(fake_2, real_data).view(b_size, 1)
             errG_2 = criterion(output_2, label_2)
 
-            # Calculate G's loss based on this output
-            errG = errG_1 + errG_2
+            if different_split:
+                output = netD(fake, real_data_g).view(b_size, 1)
+                errG_1 = criterion(output, label)
+
+                # Calculate G's loss based on this output
+                errG = errG_1 + errG_2
+            else: errG = errG_2
+
             # error = nn.functional.binary_cross_entropy(label, output, weight=mask, reduction='none')
             # summed_by_img = torch.sum(error, dim=(1,2))
             # non_zero = torch.count_nonzero(mask, (1,2))

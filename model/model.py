@@ -69,27 +69,27 @@ class GeneratorSC(nn.Module):
             nn.MaxPool2d(2)
         )
 
-        self.upBlock_1 = nn.sequential(
+        self.upBlock_1 = nn.Sequential(
             nn.ConvTranspose2d(64, 32, 3, 2, padding=1, output_padding=1, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(True),
         )
 
-        self.upBlock_2 = nn.sequential(
+        self.upBlock_2 = nn.Sequential(
             nn.ConvTranspose2d(32, 16, 3, 2, padding=1, output_padding=1, bias=False),
             nn.BatchNorm2d(16),
             nn.ReLU(True),
         )
 
-        self.upBlock_3 = nn.sequential(
+        self.upBlock_3 = nn.Sequential(
             nn.ConvTranspose2d(16, 8, 3, 2, padding=1, output_padding=1, bias=False),
             nn.BatchNorm2d(8),
             nn.ReLU(True),
         )
 
-        self.add_1 = nn.Add()
-        self.add_2 = nn.Add()
-        self.add_3 = nn.Add()
+        # self.add_1 = nn.Add()
+        # self.add_2 = nn.Add()
+        # self.add_3 = nn.Add()
 
         self.last_conv = nn.Conv2d(8, 3, 3, 1, padding=1, bias=True)
         self.sigmoid = nn.Sigmoid()
@@ -100,10 +100,10 @@ class GeneratorSC(nn.Module):
         x = self.block_3(x2)
 
         x = self.upBlock_1(x)
-        x = self.add_1([x,x2])
+        x = torch.add(x,x2)
 
         x = self.upBlock_2(x)
-        x = self.add_1([x,x1])
+        x = torch.add(x,x1)
 
         x = self.upBlock_3(x)
         

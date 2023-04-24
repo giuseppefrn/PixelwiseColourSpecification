@@ -12,4 +12,4 @@
 
 . pytorch-venv/bin/activate
 cd color-segm
-python3 siamese.py --epochs 2 --noise_std 0.1 --data_dir /scratch/gfurnari/datasets/zoomed/D65 --label_dir /scratch/gfurnari/datasets/zoomed/SHADE --output_dir /scratch/gfurnari/outputs --experiment_name "CODE TEST: Different split G and D + No noise"
+python3 siamese.py --epochs 50 --split_train 0 --add_noise 1 --noise_std 0.1 --data_dir /scratch/gfurnari/datasets/zoomed/D65 --label_dir /scratch/gfurnari/datasets/zoomed/SHADE --output_dir /scratch/gfurnari/outputs/skip-connections/ --experiment_name "skip connection - no noise - no split"
