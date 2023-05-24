@@ -243,7 +243,7 @@ if __name__ == '__main__':
     
     # Initialize BCELoss function
     # criterion = CustomLoss()
-    criterion = nn.MSELoss() #loss changed to MSE
+    criterion = nn.BCELoss() #loss changed to MSE
 
     # Create batch of latent vectors that we will use to visualize
     #  the progression of the generator

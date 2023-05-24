@@ -12,4 +12,4 @@
 
 . pytorch-venv/bin/activate
 cd color-segm
-python3 autoencoder.py --epochs 150 --split_train 1 --add_noise 1 --noise_std 0.1 --alpha 10 --data_dir /scratch/gfurnari/datasets/zoomed/D65 --label_dir /scratch/gfurnari/datasets/zoomed/SHADE --output_dir /scratch/gfurnari/outputs/autoencoder/ --experiment_name "autoencoder model - mse loss - gradient reg"
+python3 autoencoder.py --epochs 150 --alpha 1 --data_dir /scratch/gfurnari/datasets/zoomed/D65 --label_dir /scratch/gfurnari/datasets/zoomed/SHADE --output_dir /scratch/gfurnari/outputs/autoencoder/ --experiment_name "autoencoder model - bce loss - gradient reg"
