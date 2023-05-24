@@ -185,7 +185,8 @@ if __name__ == '__main__':
           'beta2':beta2,
           'noise_m':noise_mean,
           'noise_std': noise_std,
-          'name': opt.experiment_name
+          'name': opt.experiment_name,
+          'alpha':alpha
         }
         , f)
 
@@ -483,6 +484,7 @@ if __name__ == '__main__':
         plt.title("Generated Albedo")
         plt.savefig(os.path.join(output_dir, 'gen-albedo-{}'.format(i)))
         plt.show()
+        plt.close()
 
 
     ex = real_batch[1]

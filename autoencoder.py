@@ -122,7 +122,7 @@ if __name__ == '__main__':
     parser.add_argument('--ngpu', type=int, default=1, help='number of gpus')
     parser.add_argument('--experiment_name', type=str, default='None', help='experiment name')
     # parser.add_argument('--noise', type=bool, default=False, help='boolean add or not the noise to discr inputs')
-    parser.add_argument('--alpha', type=int, default=1, help='alpha coef for magnitude weight')
+    parser.add_argument('--alpha', type=float, default=1., help='alpha coef for magnitude weight')
     
     opt = parser.parse_args()
 
@@ -147,7 +147,7 @@ if __name__ == '__main__':
     label_path = opt.label_dir #'/scratch/gfurnari/transparent/SHADE'
     output_dir = opt.output_dir #'/scratch/gfurnari/transparent-output'
 
-    alpha = opt.alpha
+    alpha = torch.tensor(opt.alpha, dtype=torch.float)
 
     ## CREATING OUTPUT DIR
 
@@ -261,6 +261,7 @@ if __name__ == '__main__':
     # Lists to keep track of progress
     img_list = []
     G_losses = []
+    losses = []
     iters = 0
 
     ### TEST SOBEL
@@ -296,14 +297,14 @@ if __name__ == '__main__':
 
             with torch.no_grad():
                 img_magnitude = calculate_img_gradient(outputs)
+                magnitude = torch.mean(img_magnitude)
 
-            
-            err = err + alpha * img_magnitude
+            total_err = err + alpha * magnitude
 
-            err.backward()
+            total_err.backward()
             optimizerG.step()
 
-            if len(G_losses) > 0 and err.item() < min(G_losses):
+            if len(losses) > 0 and total_err.item() < min(losses):
                print('New best Generator!')
                with torch.no_grad():
                     fake = netG(fixed_noise).detach().cpu()
@@ -317,12 +318,13 @@ if __name__ == '__main__':
 
             # Output training stats
             if i % 50 == 0:
-                print('[%d/%d][%d/%d]\tLoss: %.4f\tmMagnitude: %.4f'
+                print('[%d/%d][%d/%d]\tLoss: %.4f\tTotal Loss: %.4f\tmMagnitude: %.4f'
                     % (epoch, num_epochs, i, len(train_dataloader),
-                        err.item(), img_magnitude))
+                        err.item(), total_err.item(), magnitude))
 
             # Save Losses for plotting later
             G_losses.append(err.item())
+            losses.append(total_err.item())
 
             # Check how the generator is doing by saving G's output on fixed_noise
             if (iters % 500 == 0) or ((epoch == num_epochs-1) and (i == len(train_dataloader)-1)):
@@ -336,6 +338,7 @@ if __name__ == '__main__':
     plt.figure(figsize=(10,5))
     plt.title("Generator Loss During Training")
     plt.plot(G_losses,label="G")
+    plt.plot(losses,label="Overall")
     plt.xlabel("iterations")
     plt.ylabel("Loss")
     plt.legend()
@@ -349,6 +352,7 @@ if __name__ == '__main__':
         plt.title("Generated Albedo")
         plt.savefig(os.path.join(output_dir, 'gen-albedo-{}'.format(i)))
         plt.show()
+        plt.close()
 
 
     ex = real_batch[1]
