@@ -26,6 +26,7 @@ import torchvision.utils as vutils
 
 from model.model import *
 from utils.dataload import build_annoations, CustomImageDataset
+from utils.transforms import *
 
 def remove_z_depth(path):
     # remove all Z_depth images
@@ -262,6 +263,7 @@ if __name__ == '__main__':
     img_list = []
     G_losses = []
     losses = []
+    deltas = []
     iters = 0
 
     ### TEST SOBEL
@@ -299,6 +301,8 @@ if __name__ == '__main__':
                 img_magnitude = calculate_img_gradient(outputs)
                 magnitude = torch.mean(img_magnitude)
 
+                deltae = deltae_2000(real_alb, outputs)
+
             total_err = err + alpha * magnitude
 
             total_err.backward()
@@ -318,19 +322,21 @@ if __name__ == '__main__':
 
             # Output training stats
             if i % 50 == 0:
-                print('[%d/%d][%d/%d]\tLoss: %.4f\tTotal Loss: %.4f\tmMagnitude: %.4f'
+                print('[%d/%d][%d/%d]\tLoss: %.4f\tTotal Loss: %.4f\tmMagnitude: %.4f\tDE2000: %.4f'
                     % (epoch, num_epochs, i, len(train_dataloader),
-                        err.item(), total_err.item(), magnitude))
+                        err.item(), total_err.item(), magnitude, deltae))
 
             # Save Losses for plotting later
             G_losses.append(err.item())
             losses.append(total_err.item())
+            deltas.append(deltae)
 
             # Check how the generator is doing by saving G's output on fixed_noise
             if (iters % 500 == 0) or ((epoch == num_epochs-1) and (i == len(train_dataloader)-1)):
                 with torch.no_grad():
                     fake = netG(fixed_noise).detach().cpu()
                 img_list.append(vutils.make_grid(fake, padding=2, normalize=True))
+
 
             iters += 1
 
@@ -344,6 +350,17 @@ if __name__ == '__main__':
     plt.legend()
     plt.savefig(os.path.join(output_dir, 'losses'))
     plt.show()
+    plt.close('all')
+
+    plt.figure(figsize=(10,5))
+    plt.title("$\Delta$E2000 During Training")
+    plt.plot(deltas)
+    plt.xlabel("iterations")
+    plt.ylabel("$\Delta$E2000")
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'deltae2000'))
+    plt.show()
+    plt.close('all')
 
     for i in range(len(img_list)):
         fig = plt.figure(figsize=(8,8))
@@ -352,7 +369,7 @@ if __name__ == '__main__':
         plt.title("Generated Albedo")
         plt.savefig(os.path.join(output_dir, 'gen-albedo-{}'.format(i)))
         plt.show()
-        plt.close()
+        plt.close('all')
 
 
     ex = real_batch[1]
