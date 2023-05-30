@@ -106,6 +106,8 @@ def calculate_img_gradient(inputs):
     # orientation = torch.arctan2(malignacy_y, malignacy_x) * (180 / np.pi) % 180
 
     return magnitude
+
+args = {'loss': {"bce": nn.BCELoss(), "mse":nn.MSELoss()} }
     
 if __name__ == '__main__':
     print('Start')
@@ -124,6 +126,8 @@ if __name__ == '__main__':
     parser.add_argument('--experiment_name', type=str, default='None', help='experiment name')
     # parser.add_argument('--noise', type=bool, default=False, help='boolean add or not the noise to discr inputs')
     parser.add_argument('--alpha', type=float, default=1., help='alpha coef for magnitude weight')
+    parser.add_argument('--loss_fn', type=str, default='mse', help='loss fn name (mse or bce)')
+    parser.add_argument('--grad_norm', action="store_true", help='grandient norm flag')
     
     opt = parser.parse_args()
 
@@ -176,6 +180,8 @@ if __name__ == '__main__':
           'lr': lr,
           'beta1': beta1,
           'beta2':beta2,
+          'loss_fn':opt.loss_fn,
+          'gradient_reg':opt.grad_norm,
           'name': opt.experiment_name
         }
         , f)
@@ -244,8 +250,7 @@ if __name__ == '__main__':
     
     # Initialize BCELoss function
     # criterion = CustomLoss()
-    criterion = nn.BCELoss() #loss changed to MSE
-
+    criterion = args['loss'][opt.loss_fn]
     # Create batch of latent vectors that we will use to visualize
     #  the progression of the generator
 
@@ -303,7 +308,10 @@ if __name__ == '__main__':
 
                 deltae = deltae_2000(real_alb, outputs)
 
-            total_err = err + alpha * magnitude
+            if opt.grad_norm:
+                total_err = err + alpha * magnitude
+            else:
+                total_err = err
 
             total_err.backward()
             optimizerG.step()
