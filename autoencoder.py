@@ -12,6 +12,7 @@ import torchvision.transforms.functional as Functional
 # import torch.nn._reduction as _Reduction
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
+from torcheval.metrics import Mean
 
 import random
 import numpy as np
@@ -269,12 +270,15 @@ if __name__ == '__main__':
     G_losses = []
     losses = []
     deltas = []
+    avg_losses = []
     iters = 0
 
     ### TEST SOBEL
     # sobelX = nn.Conv2d(3, 3, 3, stride=1, padding=0, bias=False, padding_mode='zeros', device=device)
     # sobelX.weight = torch.nn.Parameter(torch.tensor([[-1,0,1],[-2,0,2],[-1,0,1]],requires_grad=False))
     # sobelY = nn.Conv2d(3, 3, 3, stride=1, padding=0, bias=False, padding_mode='zeros', device=device)
+
+    metric_loss = Mean()
 
     print("Starting Training Loop...")
     # For each epoch
@@ -325,19 +329,19 @@ if __name__ == '__main__':
                     plt.savefig(os.path.join(output_dir, 'albedo-best-gen'))
                     plt.show()
                     plt.close()
-
-            # Output training stats
-            if i % 100 == 0:
-                with torch.no_grad():
-                   deltae = deltae_2000(real_alb, outputs)
-                print('[%d/%d][%d/%d]\tLoss: %.4f\tTotal Loss: %.4f\tmMagnitude: %.4f\tDE2000: %.4f'
-                    % (epoch, num_epochs, i, len(train_dataloader),
-                        err.item(), total_err.item(), magnitude, deltae))
-
+            
             # Save Losses for plotting later
             G_losses.append(err.item())
             losses.append(total_err.item())
-            deltas.append(deltae)
+            
+            metric_loss.update(total_err.item())
+
+            # Output training stats
+            if i % 100 == 0:
+                
+                print('[%d/%d][%d/%d]\tLoss: %.4f\tTotal Loss: %.4f\tmMagnitude: %.4f'
+                    % (epoch, num_epochs, i, len(train_dataloader),
+                        err.item(), total_err.item(), magnitude))
 
             # Check how the generator is doing by saving G's output on fixed_noise
             if (iters % 500 == 0) or ((epoch == num_epochs-1) and (i == len(train_dataloader)-1)):
@@ -347,6 +351,20 @@ if __name__ == '__main__':
 
 
             iters += 1
+        
+        #end epoch
+        #save and reset metrics
+        epoch_loss = metric_loss.compute().item()
+        metric_loss.reset()
+
+        avg_losses.append(epoch_loss)
+
+        with torch.no_grad():
+            deltae = deltae_2000(real_alb, outputs)
+            deltas.append(deltae)
+
+        print('[%d/%d]\tEpoch Avg Loss: %.4f\t last DE2000: %.4f'
+                    % (epoch, num_epochs, epoch_loss, deltae))
 
     #PLOT
     plt.figure(figsize=(10,5))
@@ -367,6 +385,16 @@ if __name__ == '__main__':
     plt.ylabel("$\Delta$E2000")
     plt.legend()
     plt.savefig(os.path.join(output_dir, 'deltae2000'))
+    plt.show()
+    plt.close('all')
+
+    plt.figure(figsize=(10,5))
+    plt.title("Average Loss During Training")
+    plt.plot(avg_losses)
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'avg_loss'))
     plt.show()
     plt.close('all')
 
