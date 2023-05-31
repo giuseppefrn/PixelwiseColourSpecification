@@ -306,8 +306,6 @@ if __name__ == '__main__':
                 img_magnitude = calculate_img_gradient(outputs)
                 magnitude = torch.mean(img_magnitude)
 
-                deltae = deltae_2000(real_alb, outputs)
-
             if opt.grad_norm:
                 total_err = err + alpha * magnitude
             else:
@@ -329,7 +327,9 @@ if __name__ == '__main__':
                     plt.close()
 
             # Output training stats
-            if i % 50 == 0:
+            if i % 100 == 0:
+                with torch.no_grad():
+                   deltae = deltae_2000(real_alb, outputs)
                 print('[%d/%d][%d/%d]\tLoss: %.4f\tTotal Loss: %.4f\tmMagnitude: %.4f\tDE2000: %.4f'
                     % (epoch, num_epochs, i, len(train_dataloader),
                         err.item(), total_err.item(), magnitude, deltae))

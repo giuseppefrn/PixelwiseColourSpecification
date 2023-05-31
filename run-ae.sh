@@ -5,8 +5,8 @@
 #SBATCH --time=6:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --gres=gpu:1
-#SBATCH --output=logs/siamese-%j.out
-#SBATCH --error=logs/siamese-%j.err
+#SBATCH --output=logs/autoencoder-%j.out
+#SBATCH --error=logs/autoencoder-%j.err
 #SBATCH --mail-user=giuseppe.furnari@ru.nl
 #SBATCH --mail-type=BEGIN,END,FAIL
 
