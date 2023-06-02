@@ -18,6 +18,35 @@ def build_annoations(root_path):
 
   return annotations
 
+def build_annoations(root_path, test_on, value):
+  annotations = pd.DataFrame()
+  test_annotations = pd.DataFrame()
+  
+  for root, dirs, files in os.walk(root_path):
+      for f in files:
+        label_root = root.replace('D65', 'SHADE')
+
+        #get info from path
+        n = int(root.split('/')[-1]) #subcolor
+        c = root.split('/')[-2] #color
+        shape = root.split('/')[-3] #shape
+
+        img_path = os.path.join(root,f)
+        label_path = os.path.join(label_root,f)
+
+        switch_case = {"color":c, "subcolor":n, "shape":shape}
+
+        #switch case on test_on and value variable
+        if test_on:
+          if switch_case[test_on] == value:
+             test_annotations = test_annotations.append({0:img_path, 1:label_path}, ignore_index=True)
+          else:
+             annotations = annotations.append({0:img_path, 1:label_path}, ignore_index=True)
+                
+        else:
+          annotations = annotations.append({0:img_path, 1:label_path}, ignore_index=True)
+  return annotations, test_annotations
+
 def build_annoations_multiview(root_path):
   annotations = pd.DataFrame()
 

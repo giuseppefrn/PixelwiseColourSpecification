@@ -131,6 +131,8 @@ if __name__ == '__main__':
     parser.add_argument('--loss_fn', type=str, default='mse', help='loss fn name (mse or bce)')
     parser.add_argument('--grad_reg', action="store_true", help='grandient reg flag')
     parser.add_argument('--run_name', type=str, default='run', help='name for the run')
+    parser.add_argument('--test_on', required=True, type=str, choices=["color", "subcolor", "shape"], help="Criterion to use to split test set")
+    parser.add_argument('--test_value', required=True, type=str, help="Value to split the test set")
     
     opt = parser.parse_args()
 
@@ -157,18 +159,16 @@ if __name__ == '__main__':
 
     alpha = torch.tensor(opt.alpha, dtype=torch.float)
 
-    ## CREATING OUTPUT DIR
+    if opt.test_on and opt.test_on == "subcolor":
+       opt.test_value = int(opt.test_value)
 
+    ## CREATING OUTPUT DIR
     final_output_dir = os.path.join(output_dir, opt.run_name)
     i = 0
 
     while os.path.exists(final_output_dir):
         i += 1
         final_output_dir = os.path.join(output_dir, opt.run_name + str(i))
-        # run_list = os.listdir(output_dir)
-        # i = len(run_list)
-        # final_output_dir = os.path.join(output_dir, 'run' + str(i))
-        # print('Eperiment folder already exists - creating: {}'.format(final_output_dir))
 
     print('Experiments directory:', final_output_dir)
     os.makedirs(final_output_dir ,exist_ok=True)
@@ -186,7 +186,9 @@ if __name__ == '__main__':
           'loss_fn':opt.loss_fn,
           'grad_reg':opt.grad_reg,
           'name': opt.experiment_name,
-          'alpha': opt.alpha
+          'alpha': opt.alpha,
+          'test_on': opt.test_on,
+          'test_value': opt.test_value
         }
         , f)
 
@@ -203,14 +205,15 @@ if __name__ == '__main__':
     # remove_z_depth(data_path)
     # remove_z_depth(opt.label_dir)
 
-    annotations = build_annoations(data_path)
+    annotations, test_annotations = build_annoations(data_path, opt.test_on, opt.test_value)
     print("Annotation written", len(annotations))
-    print(annotations.head())
+    print("Test annotation written", len(test_annotations))
 
     os.makedirs(output_dir, exist_ok=True)
     annotations.to_csv(os.path.join(output_dir,'annotations.csv'),index=False)
+    test_annotations.to_csv(os.path.join(output_dir,'test_annotations.csv'),index=False)
 
-    image_size = 256 
+    image_size = 256
 
     transform = transforms.Compose([
                                 transforms.Resize(image_size),
@@ -227,9 +230,10 @@ if __name__ == '__main__':
     # ])
     
     training_data = CustomImageDataset(os.path.join(output_dir,'annotations.csv'), transform, transform)
-    train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
+    splitted = torch.utils.data.random_split(training_data, [0.8, 0.2])
 
-    train_features, labels, masks = next(iter(train_dataloader))
+    train_dataloader = DataLoader(splitted[0], batch_size=batch_size, shuffle=True)
+    valid_dataloader = DataLoader(splitted[1], batch_size=batch_size, shuffle=True)
 
     device = torch.device("cuda:0" if (torch.cuda.is_available() and ngpu > 0) else "cpu")
     print(device)
@@ -252,36 +256,30 @@ if __name__ == '__main__':
     #  to mean=0, stdev=0.2.
     # netD.apply(weights_init)
     
-    # Initialize BCELoss function
-    # criterion = CustomLoss()
+    # Initialize Loss function
     criterion = args['loss'][opt.loss_fn]
+
     # Create batch of latent vectors that we will use to visualize
     #  the progression of the generator
-
     real_batch = next(iter(train_dataloader))
     
     fixed_noise = real_batch[0].to(device) # fixed images
 
-
-    # Setup Adam optimizers for both G and D
+    # Setup Adam optimizers
     optimizerG = optim.Adam(netG.parameters(), lr=lr, betas=(beta1, beta2))
-
-    # Training Loop
 
     # Lists to keep track of progress
     img_list = []
-    G_losses = []
-    losses = []
-    deltas = []
-    avg_losses = []
-    iters = 0
 
-    ### TEST SOBEL
-    # sobelX = nn.Conv2d(3, 3, 3, stride=1, padding=0, bias=False, padding_mode='zeros', device=device)
-    # sobelX.weight = torch.nn.Parameter(torch.tensor([[-1,0,1],[-2,0,2],[-1,0,1]],requires_grad=False))
-    # sobelY = nn.Conv2d(3, 3, 3, stride=1, padding=0, bias=False, padding_mode='zeros', device=device)
+    val_deltas = []
+    val_losses = []
+
+    avg_losses = []
+    val_avg_losses = []
 
     metric_loss = MeanMetric()
+    val_metric_loss = MeanMetric()
+    val_metric_deltae = MeanMetric()
 
     os.makedirs(os.path.join(output_dir, 'generated_albedo'), exist_ok=True)
     os.makedirs(os.path.join(output_dir, 'models'), exist_ok=True)
@@ -289,7 +287,11 @@ if __name__ == '__main__':
     print("Starting Training Loop...")
     # For each epoch
     for epoch in range(num_epochs):
-        # For each batch in the dataloader
+        
+        ############################
+        ## TRAIN
+        ############################
+        netG.train()
         for i, data in enumerate(train_dataloader, 0):
             # Format batch
             netG.zero_grad()
@@ -300,17 +302,10 @@ if __name__ == '__main__':
             real_data = disc_data.to(device)       
 
             b_size = real_alb.size(0)
-
-            ############################
-            ## TRAIN
-            ############################
-
             outputs = netG(real_data)
 
             # Calculate the error
             err = criterion(outputs, real_alb)
-
-            # Calculate the gradients for this batch
 
             with torch.no_grad():
                 img_magnitude = calculate_img_gradient(outputs)
@@ -320,37 +315,31 @@ if __name__ == '__main__':
                 total_err = err + alpha * magnitude
             else:
                 total_err = err
-
+            
+            # Calculate the gradients for this batch
             total_err.backward()
             optimizerG.step()
-
-            # if len(losses) > 0 and total_err.item() < min(losses):
-            #    print('New best Generator!')
-            #    with torch.no_grad():
-                    # fake = netG(fixed_noise).detach().cpu()
-                    # fig = plt.figure(figsize=(8,8))
-                    # plt.axis("off")
-                    # plt.imshow(np.transpose(vutils.make_grid(fake, padding=2, normalize=True),(1,2,0)))
-                    # plt.title("Generated Albedo")
-                    # plt.savefig(os.path.join(output_dir, 'albedo-best-gen'))
-                    # plt.show()
-                    # plt.close()
-            
-            # Save Losses for plotting later
-            G_losses.append(err.item())
-            losses.append(total_err.item())
-            
+                        
             metric_loss.update(torch.tensor(total_err.item()))
 
             # Output training stats
-            if i % 100 == 0:
+            #TODO move to epoch
+            # if i % 100 == 0:
                 
-                print('[%d/%d][%d/%d]\tLoss: %.4f\tTotal Loss: %.4f\tmMagnitude: %.4f'
-                    % (epoch, num_epochs, i, len(train_dataloader),
-                        err.item(), total_err.item(), magnitude))
+            #     print('[%d/%d][%d/%d]\tLoss: %.4f\tTotal Loss: %.4f\tmMagnitude: %.4f'
+            #         % (epoch, num_epochs, i, len(train_dataloader),
+            #             err.item(), total_err.item(), magnitude))
+        
+        #end epoch
+        #save and reset metrics
+        epoch_loss = metric_loss.compute().item()
+        metric_loss.reset()
+        avg_losses.append(epoch_loss)
 
-            # Check how the generator is doing by saving G's output on fixed_noise
-            if (iters % 500 == 0) or ((epoch == num_epochs-1) and (i == len(train_dataloader)-1)):
+        print('[%d/%d]\tEpoch Training Avg Loss: %.4f'
+                    % (epoch+1, num_epochs, epoch_loss))
+        
+        if (epoch % 5 == 0 or epoch == num_epochs-1):
                 with torch.no_grad():
                     fake = netG(fixed_noise).detach().cpu()
                 img = vutils.make_grid(fake, padding=2, normalize=True)
@@ -359,82 +348,138 @@ if __name__ == '__main__':
                 plt.axis("off")
                 plt.imshow(np.transpose(img,(1,2,0)))
                 plt.title("Generated Albedo")
-                plt.savefig(os.path.join(output_dir, 'generated_albedo', 'gen-albedo-{}'.format(iters)))
+                plt.savefig(os.path.join(output_dir, 'generated_albedo', 'gen-albedo-{}'.format(epoch)))
                 plt.show()
                 plt.close('all')
 
-            iters += 1
+        ############################
+        ##  VALIDATION
+        ############################
+
+        netG.eval()
+        for i, data in enumerate(valid_dataloader, 0):
+            with torch.no_grad():
+                gen_data = data[0]
+                
+                real_alb = data[1].to(device)
+                real_data = gen_data.to(device)       
+
+                b_size = real_alb.size(0)
+
+                outputs = netG(real_data)
+
+                # Calculate the error
+                err = criterion(outputs, real_alb)
+
+                if opt.grad_reg:
+                    img_magnitude = calculate_img_gradient(outputs)
+                    magnitude = torch.mean(img_magnitude)
+
+                    total_err = err + alpha * magnitude
+                else:
+                    total_err = err
+                
+                val_metric_loss.update(torch.tensor(total_err.item()))
+            
+                deltae = deltae_2000(real_alb, outputs)
+                val_metric_deltae.update(torch.tensor(deltae))
         
-        #end epoch
-        #save and reset metrics
-        epoch_loss = metric_loss.compute().item()
-        metric_loss.reset()
+        val_loss = val_metric_loss.compute().item()
+        val_deltae = val_metric_deltae.compute().item()
 
-        avg_losses.append(epoch_loss)
-
-        with torch.no_grad():
-            deltae = deltae_2000(real_alb, outputs)
-            if len(deltas) > 0 and deltae < min(deltas):
-                torch.save(netG.state_dict(), os.path.join(output_dir, 'models' ,'model-best'))
-
-                fake = netG(fixed_noise).detach().cpu()
-                fig = plt.figure(figsize=(8,8))
-                plt.axis("off")
-                plt.imshow(np.transpose(vutils.make_grid(fake, padding=2, normalize=True),(1,2,0)))
-                plt.title("Generated Albedo")
-                plt.savefig(os.path.join(output_dir, 'albedo-best-gen'))
-                plt.show()
-                plt.close()
-
-            deltas.append(deltae)
-
-        print('[%d/%d]\tEpoch Avg Loss: %.4f\t last DE2000: %.4f'
-                    % (epoch+1, num_epochs, epoch_loss, deltae))
+        val_metric_loss.reset()
+        val_metric_deltae.reset()
+            
+        if len(val_deltas) > 0 and val_deltae <= min(val_deltas):
+            print("\tNew best model!")
+            torch.save(netG.state_dict(), os.path.join(output_dir, 'models' ,'model-best.pt'))
+            fake = netG(fixed_noise).detach().cpu()
+            fig = plt.figure(figsize=(8,8))
+            plt.axis("off")
+            plt.imshow(np.transpose(vutils.make_grid(fake, padding=2, normalize=True),(1,2,0)))
+            plt.title("Generated Albedo")
+            plt.savefig(os.path.join(output_dir, 'albedo-best-gen'))
+            plt.show()
+            plt.close()
         
-    torch.save(netG.state_dict(), os.path.join(output_dir, 'models' ,'model-last'))
-
-    # history = pd.DataFrame(data=[avg_losses,deltas], columns=["AvgLoss", "Delta-sample"])
-    history = pd.DataFrame({"AvgLoss": avg_losses, "DeltaE": deltas})
+        val_deltas.append(val_deltae)
+        val_losses.append(val_loss)
+        
+        print('\tValidation avg loss: %.4f\tDeltaE00: %.4f' % (val_loss, val_deltae))
+        
+    torch.save(netG.state_dict(), os.path.join(output_dir, 'models' ,'model-last.pt'))
+    history = pd.DataFrame({"AvgLoss": avg_losses, "ValLoss": val_losses, "DeltaE": val_deltas})
     history.to_csv(os.path.join(output_dir, 'history.csv'))
 
+    ##TODO test model on test set
+    ## free memory 
+    del valid_dataloader, train_dataloader, training_data, splitted
+
+    test_data = CustomImageDataset(os.path.join(output_dir,'test_annotations.csv'), transform, transform)
+    test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
+
+    test_metric_deltae = MeanMetric()
+
+    netG.eval()
+    for i, data in enumerate(test_dataloader, 0):
+        with torch.no_grad():
+            gen_data = data[0]
+                
+            real_alb = data[1].to(device)
+            real_data = gen_data.to(device)       
+
+            b_size = real_alb.size(0)
+
+            outputs = netG(real_data)
+
+            deltae = deltae_2000(real_alb, outputs)
+            test_metric_deltae.update(torch.tensor(deltae))
+ 
+    test_deltae = test_metric_deltae.compute().item()
+    print("DeltaE on test set {:.4f}".format(test_deltae))
+
+    fake = outputs.detach().cpu()
+    
+    fig = plt.figure(figsize=(8,8))
+    plt.axis("off")
+    plt.imshow(np.transpose(vutils.make_grid(fake, padding=2, normalize=True),(1,2,0)))
+    plt.title("Generated Albedo on test")
+    plt.savefig(os.path.join(output_dir, 'albedo-testset'))
+    plt.show()
+    plt.close()
+    
     #PLOT
+    os.makedirs(os.path.join(output_dir, "plots"), exist_ok=True)
+    
     plt.figure(figsize=(10,5))
-    plt.title("Generator Loss During Training")
-    plt.plot(G_losses,label="G")
-    plt.plot(losses,label="Overall")
-    plt.xlabel("iterations")
+    plt.title("Loss During Training")
+    # plt.plot(G_losses,label="G")
+    plt.plot(avg_losses,label="Training")
+    plt.plot(val_losses,label="Validation")
+    plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.legend()
-    plt.savefig(os.path.join(output_dir, 'losses'))
+    plt.savefig(os.path.join(output_dir, 'plots', 'losses'))
     plt.show()
     plt.close('all')
 
     plt.figure(figsize=(10,5))
-    plt.title("$\Delta$E2000 During Training")
-    plt.plot(deltas)
+    plt.title("Validation $\Delta$E2000 During Training")
+    plt.plot(val_deltas)
     plt.xlabel("Epoch")
     plt.ylabel("$\Delta$E2000")
-    plt.savefig(os.path.join(output_dir, 'deltae2000'))
-    plt.show()
-    plt.close('all')
-
-    plt.figure(figsize=(10,5))
-    plt.title("Average Loss During Training")
-    plt.plot(avg_losses)
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.savefig(os.path.join(output_dir, 'avg_loss'))
+    plt.savefig(os.path.join(output_dir, 'plots', 'deltae2000'))
     plt.show()
     plt.close('all')
     
+    #plot some training imgs
     ex = real_batch[1]
     plt.figure(figsize=(8,8))
     plt.axis("off")
     plt.title("Original Shadeless Images")
     plt.imshow(np.transpose(vutils.make_grid(ex, padding=2, normalize=True).cpu(),(1,2,0)))
     plt.savefig(os.path.join(output_dir, 'original-albedo'))
-
-    # Plot some training images
+    
     ex = real_batch[0]
     plt.figure(figsize=(8,8))
     plt.axis("off")

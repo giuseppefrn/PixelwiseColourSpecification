@@ -15,8 +15,8 @@ def deltae_2000(true, pred):
     y_lab = rgb2lab(y)
 
     #calc delta e
-    res = np.mean(deltaE_ciede2000(x_lab, y_lab))
-
+    # res = np.mean(deltaE_ciede2000(x_lab, y_lab))
+    res = deltaE_ciede2000(x_lab, y_lab)
     # print(res.shape)
     # print(np.mean(res))
 
