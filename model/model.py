@@ -331,3 +331,92 @@ class SiameseDiscriminatorPixelWise(nn.Module):
 
         output = self.sigmoid(output)
         return output
+    
+#import torch
+class VisionTransformer(nn.Module):
+    def __init__(self, ngpu, image_size, patch_size, num_channels, emb_dim, num_heads, num_layers, hidden_dim=2048):
+        super(VisionTransformer, self).__init__()
+        assert emb_dim % num_heads == 0, "Embedding dimension must be 0 modulo number of heads."
+        self.ngpu = ngpu
+        self.image_size = image_size
+        self.patch_size = patch_size
+        self.num_patches = (image_size // patch_size) ** 2
+        self.emb_dim = emb_dim
+
+        self.patch_embedding = nn.Conv2d(num_channels, emb_dim, kernel_size=patch_size, stride=patch_size)
+        self.position_embedding = nn.Parameter(torch.randn(1, self.num_patches + 1, emb_dim))
+        self.cls_token = nn.Parameter(torch.randn(1, 1, emb_dim))
+
+        self.transformer_encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(emb_dim, num_heads, hidden_dim),
+            num_layers
+        )
+
+        self.upBlock_1 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Conv2d(8, 8, 3, 1, padding=1, bias=False),
+            nn.BatchNorm2d(8),
+            nn.LeakyReLU(negative_slope=0.1, inplace=True),
+        )
+
+        self.upBlock_2 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Conv2d(8, 4, 3, 1, padding=1, bias=False),
+            nn.BatchNorm2d(4),
+            nn.LeakyReLU(negative_slope=0.1, inplace=True),
+        )
+
+        self.upBlock_3 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Conv2d(4, 3, 3, 1, padding=1, bias=False),
+            nn.BatchNorm2d(3),
+            nn.LeakyReLU(negative_slope=0.1, inplace=True)
+        )
+
+        self.last_conv = nn.Conv2d(3, 3, 3, 1, padding=1, bias=True)
+        self.sigmoid = nn.Sigmoid()
+
+        # self.decoder = nn.Sequential(
+        #     nn.Linear(emb_dim, emb_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(emb_dim, num_channels * patch_size ** 2),
+        #     nn.Sigmoid()
+        # )
+
+    def forward(self, x):
+        # print(x.shape)
+        batch_size = x.shape[0]
+        x = self.patch_embedding(x)
+        # print(x.shape)
+        x = x.flatten(2).transpose(1, 2)
+        # print(x.shape)
+        
+        cls_token = self.cls_token.expand(batch_size, -1, -1)
+        x = torch.cat((cls_token, x), dim=1)
+        # print(x.shape)
+
+        x += self.position_embedding
+        x = self.transformer_encoder(x)
+        # print(x.shape)
+
+        x = x[:, 1:]
+        # print(x.shape)
+        x = x.view(batch_size, 8, 32, 32)
+        # print(x.shape)
+        # x = self.decoder(x
+        # x = torch.moveaxis(x, 1, )
+        # print(x.shape)
+        
+        x = self.upBlock_1(x)
+        x = self.upBlock_2(x)
+        x = self.upBlock_3(x)
+
+        x = self.last_conv(x)
+        x = self.sigmoid(x)
+
+        # x = x.transpose(1, 2)
+        # print(x.shape)
+        # x = x.reshape(batch_size, 3, self.image_size,self.image_size)
+        # print(x.shape)
+        
+        return x

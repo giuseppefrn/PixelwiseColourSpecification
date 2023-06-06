@@ -159,7 +159,7 @@ if __name__ == '__main__':
 
     alpha = torch.tensor(opt.alpha, dtype=torch.float)
 
-    if opt.test_on and opt.test_on == "subcolor":
+    if opt.test_on and opt.test_on != "shape":
        opt.test_value = int(opt.test_value)
 
     ## CREATING OUTPUT DIR
@@ -212,6 +212,8 @@ if __name__ == '__main__':
     os.makedirs(output_dir, exist_ok=True)
     annotations.to_csv(os.path.join(output_dir,'annotations.csv'),index=False)
     test_annotations.to_csv(os.path.join(output_dir,'test_annotations.csv'),index=False)
+
+    print(annotations.head())
 
     image_size = 256
 
